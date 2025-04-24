@@ -1,0 +1,153 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>菜單頁面</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+    {% csrf_token %}
+    <h1>🍽️ 今日菜單</h1>
+    <h2>新增菜單項目</h2>
+    <form id="add-item-form">
+        <!-- {{ csrf_token }} -->
+        <input type="text" id="name" placeholder="名稱" required>
+        <input type="number" id="price" placeholder="價格" required step="0.01">
+        <button type="submit">新增</button>
+    </form>
+    <ul id="menu-list">
+        <!-- 菜單項目會動態出現在這裡 -->
+    </ul>
+
+    <script>
+        // 🛡️ 這段要放最前面
+        $.ajaxSetup({
+          beforeSend: function(xhr, settings) {
+            // CSRF Token
+            const csrftoken = $('meta[name="csrf-token"]').attr('content');
+            if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+              xhr.setRequestHeader("X-CSRFToken", csrftoken);
+            }
+            // JWT Token
+            const token = localStorage.getItem('token');
+            if (token) {
+                xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+              } else {
+              console.warn("⚠️ 找不到 JWT token，請先登入！");
+            }
+          }
+        });
+        
+        // 載入資料
+        $(document).ready(function() {
+            $.get('/api/menu-items/', function(data) {
+                $('#menu-list').empty(); // ← 清空列表再重載
+                data.forEach(function(item) {
+                    $('#menu-list').append(
+                        `<li data-id="${item.id}">
+                            ${item.name} - $${item.price}
+                            <button class="delete-btn">刪除</button>
+                        </li>`
+                    );
+                });
+            });
+        });
+
+        // 🗑️ 刪除功能（委派綁定）
+        $('#menu-list').on('click', '.delete-btn', function() {
+            const li = $(this).closest('li');
+            const itemId = li.data('id');
+
+            $.ajax({
+                url: '/api/menu-items/${itemId}/',
+                // url: '/api/menu-items/', // 🧠 ← 這個一定要加上！
+                method: 'DELETE',
+                success: function() {
+                    li.remove(); // 成功後從畫面中移除
+                },
+                error: function(xhr) {
+                    alert('刪除失敗：' + xhr.responseText);
+                }
+            });
+        });
+        
+        // 表單送出; // 新增菜單項目
+        $('#add-item-form').submit(function(event) {
+            event.preventDefault(); // 不要讓表單自動重新整理; 不要送出表單
+
+            const name = $('#name').val().trim();
+            const price = parseFloat($('#price').val());
+
+            if (!name) {
+              alert('名稱不能空白！'); //防止空白、錯誤輸入
+              return;
+            }
+
+            if (isNaN(price) || price <= 0) {
+              alert('價格必須是正數！');//改善使用體驗
+              return;
+            }
+
+            const newItem = { name: name, price: price };
+
+            $.ajax({
+                url: '/api/menu-items/',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(newItem),
+                success: function(data) {
+                  console.log('新增成功，回傳資料：', data);
+                  $('#menu-list').append(`<li data-id="${data.id}">
+                    ${data.name} - $${data.price}
+                    <button class="delete-btn">刪除</button></li>`);
+                  $('#name').val('');
+                  $('#price').val('');
+                },
+                error: function(xhr, status, error) {
+                  console.log('錯誤訊息:', xhr.responseText);
+                  alert('新增失敗：' + xhr.responseText);
+                }
+            });
+
+        });
+
+        // 登入JWT 
+        $('#login-form').submit(function (event) {
+            event.preventDefault();
+
+            const credentials = {
+                username: $('#username').val(),
+                password: $('#password').val()
+            };
+
+            $.ajax({
+                url: '/api/token/',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify(credentials),
+                success: function(response) {
+                    // ✅ 這邊要加上這一行
+                    localStorage.setItem('token', response.access);
+
+                    alert('登入成功！');
+                    location.reload(); // ← 看你要轉跳或 reload 頁面都行
+                },
+                error: function(xhr) {
+                    alert('登入失敗：' + xhr.responseText);
+                }
+            });
+        });
+
+    </script>
+</body>
+</html>
+
+
+<!-- 
+🎉 成功後你會學到：
+如何用 jQuery 呼叫 API
+如何把 API 資料「插入」網頁中
+Django REST + jQuery 前後端整合的第一步完成！
+ -->
