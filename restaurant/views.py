@@ -14,3 +14,6 @@ class MenuItemViewSet(viewsets.ModelViewSet): #用來處理 API（JSON 回應給
     queryset = MenuItem.objects.all()
     serializer_class = MenuItemSerializer
     permission_classes = [IsAuthenticated]
+
+def login_page(request):
+    return render(request, 'restaurant/login.html')

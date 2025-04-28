@@ -22,123 +22,226 @@
     </ul>
 
     <script>
-        // 🛡️ 這段要放最前面
-        $.ajaxSetup({
-          beforeSend: function(xhr, settings) {
-            // CSRF Token
-            const csrftoken = $('meta[name="csrf-token"]').attr('content');
-            if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
-              xhr.setRequestHeader("X-CSRFToken", csrftoken);
-            }
-            // JWT Token
-            const token = localStorage.getItem('token');
-            if (token) {
-                xhr.setRequestHeader('Authorization', 'Bearer ' + token);
-              } else {
-              console.warn("⚠️ 找不到 JWT token，請先登入！");
-            }
-          }
-        });
+        $(document).ready(function () {
+    // ✅ 一進來就檢查 token，有問題就導回登入頁
+    const token = localStorage.getItem('token');
+    if (!token) {
+      alert('請先登入！');
+      window.location.href = 'login';
+
+      return;
+    }
+    // ✅ 有 token 的話才 alert 出來
+    alert("access token: " + token);
+    console.log("access token: " + token);
+
+    // ✅ 這裡才設定 Ajax 的預設 headers（有 token 才設）
+    $.ajaxSetup({
+      beforeSend: function(xhr, settings) {
+        const csrftoken = $('meta[name="csrf-token"]').attr('content');
+        if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+          xhr.setRequestHeader("X-CSRFToken", csrftoken);
+        }
+
+        // 加上 JWT token
+        xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+      }
+    });
+
+    // ✅ 拿取菜單列表資料
+    $.get('/api/menu-items/', function(data) {
+      $('#menu-list').empty(); // ← 清空列表
+      data.forEach(function(item) {
+        $('#menu-list').append(
+          `<li data-id="${item.id}">
+              ${item.name} - $${item.price}
+              <button class="delete-btn">刪除</button>
+          </li>`
+        );
+      });
+    });
+
+    // 🗑️ 刪除功能
+    $('#menu-list').on('click', '.delete-btn', function() {
+      const li = $(this).closest('li');
+      const itemId = li.data('id');
+
+      $.ajax({
+        url: `/api/menu-items/${itemId}/`,
+        method: 'DELETE',
+        success: function () {
+          li.remove();
+        },
+        error: function (xhr) {
+          alert('刪除失敗：' + xhr.responseText);
+        }
+      });
+    });
+
+    // ➕ 新增菜單項目
+    $('#add-item-form').submit(function (event) {
+      event.preventDefault();
+      const name = $('#name').val().trim();
+      const price = parseFloat($('#price').val());
+
+      if (!name) {
+        alert('名稱不能空白！');
+        return;
+      }
+
+      if (isNaN(price) || price <= 0) {
+        alert('價格必須是正數！');
+        return;
+      }
+
+      const newItem = { name, price };
+
+      $.ajax({
+        url: '/api/menu-items/',
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(newItem),
+        success: function (data) {
+          $('#menu-list').append(
+            `<li data-id="${data.id}">
+              ${data.name} - $${data.price}
+              <button class="delete-btn">刪除</button>
+            </li>`
+          );
+          $('#name').val('');
+          $('#price').val('');
+        },
+        error: function (xhr) {
+          alert('新增失敗：' + xhr.responseText);
+        }
+      });
+    });
+  });
+        // // 🛡️ 這段要放最前面
+        // $.ajaxSetup({
+        //   beforeSend: function(xhr, settings) {
+        //     // CSRF Token
+        //     const csrftoken = $('meta[name="csrf-token"]').attr('content');
+        //     if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+        //       xhr.setRequestHeader("X-CSRFToken", csrftoken);
+        //     }
+        //     // JWT Token
+        //     const token = localStorage.getItem('token');
+        //     if (token) {
+        //         xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+        //       } else {
+        //       console.warn("⚠️ 找不到 JWT token，請先登入！");
+        //     }
+        //   }
+        // });
         
-        // 載入資料
-        $(document).ready(function() {
-            $.get('/api/menu-items/', function(data) {
-                $('#menu-list').empty(); // ← 清空列表再重載
-                data.forEach(function(item) {
-                    $('#menu-list').append(
-                        `<li data-id="${item.id}">
-                            ${item.name} - $${item.price}
-                            <button class="delete-btn">刪除</button>
-                        </li>`
-                    );
-                });
-            });
-        });
+        // // 載入資料
+        // $(document).ready(function() {
+        //   // 一進來就檢查有沒有 token，沒有就導回登入頁面
+        //     const token = localStorage.getItem('token');
+        //     if (!token) {
+        //       alert('請先登入！');
+        //       window.location.href = 'login.html';
+        //       return; // ⛔ 中止後面執行
+        //     }
 
-        // 🗑️ 刪除功能（委派綁定）
-        $('#menu-list').on('click', '.delete-btn', function() {
-            const li = $(this).closest('li');
-            const itemId = li.data('id');
+        //     $.get('/api/menu-items/', function(data) {
+        //         $('#menu-list').empty(); // ← 清空列表再重載
+        //         data.forEach(function(item) {
+        //             $('#menu-list').append(
+        //                 `<li data-id="${item.id}">
+        //                     ${item.name} - $${item.price}
+        //                     <button class="delete-btn">刪除</button>
+        //                 </li>`
+        //             );
+        //         });
+        //     });
+        // });
 
-            $.ajax({
-                url: '/api/menu-items/${itemId}/',
-                // url: '/api/menu-items/', // 🧠 ← 這個一定要加上！
-                method: 'DELETE',
-                success: function() {
-                    li.remove(); // 成功後從畫面中移除
-                },
-                error: function(xhr) {
-                    alert('刪除失敗：' + xhr.responseText);
-                }
-            });
-        });
+        // // 🗑️ 刪除功能（委派綁定）
+        // $('#menu-list').on('click', '.delete-btn', function() {
+        //     const li = $(this).closest('li');
+        //     const itemId = li.data('id');
+
+        //     $.ajax({
+        //         url: '/api/menu-items/${itemId}/',
+        //         // url: '/api/menu-items/', // 🧠 ← 這個一定要加上！
+        //         method: 'DELETE',
+        //         success: function() {
+        //             li.remove(); // 成功後從畫面中移除
+        //         },
+        //         error: function(xhr) {
+        //             alert('刪除失敗：' + xhr.responseText);
+        //         }
+        //     });
+        // });
         
-        // 表單送出; // 新增菜單項目
-        $('#add-item-form').submit(function(event) {
-            event.preventDefault(); // 不要讓表單自動重新整理; 不要送出表單
+        // // 表單送出; // 新增菜單項目
+        // $('#add-item-form').submit(function(event) {
+        //     event.preventDefault(); // 不要讓表單自動重新整理; 不要送出表單
 
-            const name = $('#name').val().trim();
-            const price = parseFloat($('#price').val());
+        //     const name = $('#name').val().trim();
+        //     const price = parseFloat($('#price').val());
 
-            if (!name) {
-              alert('名稱不能空白！'); //防止空白、錯誤輸入
-              return;
-            }
+        //     if (!name) {
+        //       alert('名稱不能空白！'); //防止空白、錯誤輸入
+        //       return;
+        //     }
 
-            if (isNaN(price) || price <= 0) {
-              alert('價格必須是正數！');//改善使用體驗
-              return;
-            }
+        //     if (isNaN(price) || price <= 0) {
+        //       alert('價格必須是正數！');//改善使用體驗
+        //       return;
+        //     }
 
-            const newItem = { name: name, price: price };
+        //     const newItem = { name: name, price: price };
 
-            $.ajax({
-                url: '/api/menu-items/',
-                method: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify(newItem),
-                success: function(data) {
-                  console.log('新增成功，回傳資料：', data);
-                  $('#menu-list').append(`<li data-id="${data.id}">
-                    ${data.name} - $${data.price}
-                    <button class="delete-btn">刪除</button></li>`);
-                  $('#name').val('');
-                  $('#price').val('');
-                },
-                error: function(xhr, status, error) {
-                  console.log('錯誤訊息:', xhr.responseText);
-                  alert('新增失敗：' + xhr.responseText);
-                }
-            });
+        //     $.ajax({
+        //         url: '/api/menu-items/',
+        //         method: 'POST',
+        //         contentType: 'application/json',
+        //         data: JSON.stringify(newItem),
+        //         success: function(data) {
+        //           console.log('新增成功，回傳資料：', data);
+        //           $('#menu-list').append(`<li data-id="${data.id}">
+        //             ${data.name} - $${data.price}
+        //             <button class="delete-btn">刪除</button></li>`);
+        //           $('#name').val('');
+        //           $('#price').val('');
+        //         },
+        //         error: function(xhr, status, error) {
+        //           console.log('錯誤訊息:', xhr.responseText);
+        //           alert('新增失敗：' + xhr.responseText);
+        //         }
+        //     });
 
-        });
+        // });
 
-        // 登入JWT 
-        $('#login-form').submit(function (event) {
-            event.preventDefault();
+        // // 登入JWT 
+        // $('#login-form').submit(function (event) {
+        //     event.preventDefault();
 
-            const credentials = {
-                username: $('#username').val(),
-                password: $('#password').val()
-            };
+        //     const credentials = {
+        //         username: $('#username').val(),
+        //         password: $('#password').val()
+        //     };
 
-            $.ajax({
-                url: '/api/token/',
-                method: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify(credentials),
-                success: function(response) {
-                    // ✅ 這邊要加上這一行
-                    localStorage.setItem('token', response.access);
+        //     $.ajax({
+        //         url: '/api/token/',
+        //         method: 'POST',
+        //         contentType: 'application/json',
+        //         data: JSON.stringify(credentials),
+        //         success: function(response) {
+        //             // ✅ 這邊要加上這一行
+        //             localStorage.setItem('token', response.access);
 
-                    alert('登入成功！');
-                    location.reload(); // ← 看你要轉跳或 reload 頁面都行
-                },
-                error: function(xhr) {
-                    alert('登入失敗：' + xhr.responseText);
-                }
-            });
-        });
+        //             alert('登入成功！');
+        //             location.reload(); // ← 看你要轉跳或 reload 頁面都行
+        //         },
+        //         error: function(xhr) {
+        //             alert('登入失敗：' + xhr.responseText);
+        //         }
+        //     });
+        // });
 
     </script>
 </body>

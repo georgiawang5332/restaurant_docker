@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',  # 若未來需要 Token 驗證
 
     'rest_framework_simplejwt',
+    'corsheaders', #CORS（跨來源資源共享）政策阻擋了你的請求
 ]
 
 MIDDLEWARE = [
@@ -53,6 +54,8 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+
+    'corsheaders.middleware.CorsMiddleware', #corsheaders
 ]
 
 ROOT_URLCONF = 'restaurant_project.urls'
@@ -138,3 +141,5 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ),
 }
+
+CORS_ALLOW_ALL_ORIGINS = True  # 開發階段可以全開

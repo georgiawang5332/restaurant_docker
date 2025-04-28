@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>登入</title>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+
+  <h1>登入</h1>
+  <form id="login-form">
+    <label for="username">帳號：</label>
+    <input type="text" id="username" name="username"><br><br>
+
+    <label for="password">密碼：</label>
+    <input type="password" id="password" name="password"><br><br>
+
+    <button type="submit">登入</button>
+  </form>
+
+  <script>
+    $('#login-form').submit(function (event) {
+      event.preventDefault();
+
+      const credentials = {
+        username: $('#username').val(),
+        password: $('#password').val()
+      };
+
+      $.ajax({
+        // url: 'http://localhost:8000/api/token/',
+        url: '/api/token/',  // 使用相對路徑
+        method: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(credentials),
+        success: function(response) {
+          console.log('登入成功，回傳資料：', response);
+
+          // ✅ 存進 localStorage
+          localStorage.setItem('token', response.access);
+
+          alert('登入成功！');
+          window.location.href = '/index/'; // ⬅️ 登入成功後導向主頁（可改）
+          window.location.href = '/';  // 修改為您的主頁路徑
+        },
+        error: function(xhr) {
+          console.log('登入失敗：', xhr);  // 增加更詳細的錯誤日誌
+          // alert('登入失敗：' + xhr.responseText);
+          alert('登入失敗：' + (xhr.responseJSON ? JSON.stringify(xhr.responseJSON) : xhr.statusText));
+        }
+      });
+    });
+  </script>
+
+</body>
+</html>
