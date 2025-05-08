@@ -1,256 +1,363 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
     <meta name="csrf-token" content="{{ csrf_token }}">
-    <title>菜單頁面</title>
+    <title>菜單管理</title>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
+        #timer { 
+            position: fixed; 
+            top: 10px; 
+            right: 20px; 
+            background-color: #f8f9fa; 
+            padding: 10px; 
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .countdown { color: #dc3545; font-weight: bold; }
+        #menu-list li {
+            margin-bottom: 10px;
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+        }
+        button {
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+        #logout-btn {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            position: absolute;
+            top: 10px;
+            left: 20px;
+        }
+        .delete-btn {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            margin-left: 10px;
+        }
+        #add-item-form {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0, 0, 0, 0.3);
+            border-radius: 50%;
+            border-top-color: #007bff;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
 </head>
 <body>
-    {% csrf_token %}
-    <h1>🍽️ 今日菜單</h1>
+    <h1 style="text-align: center; margin-top: 40px;">🍽️ 今日飲料菜單</h1>
+    
+    <!-- 登出按鈕 -->
+    <button id="logout-btn">登出</button>
+
+    <!-- 倒數計時器 -->
+    <div id="timer">
+        登入剩餘時間：<span class="countdown">計算中...</span>
+    </div>
+
+    <!-- 新增菜單項目 -->
     <h2>新增菜單項目</h2>
     <form id="add-item-form">
-        <!-- {{ csrf_token }} -->
         <input type="text" id="name" placeholder="名稱" required>
         <input type="number" id="price" placeholder="價格" required step="0.01">
         <button type="submit">新增</button>
     </form>
-    <ul id="menu-list">
-        <!-- 菜單項目會動態出現在這裡 -->
-    </ul>
+
+    <!-- 菜單列表 -->
+    <div id="loading-menu">
+        <span class="spinner"></span> 載入菜單中...
+    </div>
+    <ul id="menu-list"></ul>
+
+    <!-- 自訂錯誤訊息視窗 -->
+    <div id="error-modal" style="display:none; position:fixed; top:30%; left:50%; transform:translate(-50%, -50%);
+        background:#fff; padding:20px; border:2px solid #f44336; box-shadow:0 0 10px rgba(0,0,0,0.3); z-index:1000;">
+        <p id="error-message" style="color:#f44336;"></p>
+        <button onclick="$('#error-modal').hide()">關閉</button>
+    </div>
+
+    <!-- 確認刪除對話框 -->
+    <div id="confirm-modal" style="display:none; position:fixed; top:30%; left:50%; transform:translate(-50%, -50%);
+        background:#fff; padding:20px; border:2px solid #007bff; box-shadow:0 0 10px rgba(0,0,0,0.3); z-index:1000;">
+        <p>確定要刪除這個菜單項目嗎？</p>
+        <button id="confirm-yes">確定</button>
+        <button id="confirm-no">取消</button>
+    </div>
 
     <script>
         $(document).ready(function () {
-    // ✅ 一進來就檢查 token，有問題就導回登入頁
-    const token = localStorage.getItem('token');
-    if (!token) {
-      alert('請先登入！');
-      window.location.href = 'login';
+            // 檢查登入狀態
+            const token = localStorage.getItem('token');
+            if (!token) {
+                window.location.href = '/login/';
+                return;
+            }
 
-      return;
-    }
-    // ✅ 有 token 的話才 alert 出來
-    alert("access token: " + token);
-    console.log("access token: " + token);
+            // ⏰ 解析 JWT 過期時間並設定自動登出
+            let tokenExp;
+            try {
+                // 先從 localStorage 中取得之前存的過期時間
+                tokenExp = localStorage.getItem('token_exp');
+                
+                // 如果沒有存過，就從 token 解析
+                if (!tokenExp) {
+                    const payloadBase64 = token.split('.')[1];
+                    const payloadJson = atob(payloadBase64);
+                    const payload = JSON.parse(payloadJson);
+                    tokenExp = payload.exp * 1000; // 毫秒
+                    localStorage.setItem('token_exp', tokenExp);
+                } else {
+                    // 轉換為數字
+                    tokenExp = parseInt(tokenExp);
+                }
+                
+                const now = Date.now();
+                const timeout = tokenExp - now;
 
-    // ✅ 這裡才設定 Ajax 的預設 headers（有 token 才設）
-    $.ajaxSetup({
-      beforeSend: function(xhr, settings) {
-        const csrftoken = $('meta[name="csrf-token"]').attr('content');
-        if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
-          xhr.setRequestHeader("X-CSRFToken", csrftoken);
-        }
+                if (timeout > 0) {
+                    // 設定自動登出
+                    setTimeout(() => {
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('token_exp');
+                        alert('登入逾時，請重新登入');
+                        window.location.href = '/login/';
+                    }, timeout);
+                    
+                    // 設定倒數計時顯示
+                    startCountdown(tokenExp);
+                } else {
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('token_exp');
+                    alert('登入逾時，請重新登入');
+                    window.location.href = '/login/';
+                    return;
+                }
+            } catch (err) {
+                console.error("JWT 解碼失敗", err);
+                localStorage.removeItem('token');
+                localStorage.removeItem('token_exp');
+                window.location.href = '/login/';
+                return;
+            }
 
-        // 加上 JWT token
-        xhr.setRequestHeader('Authorization', 'Bearer ' + token);
-      }
-    });
+            // ⏳ 倒數計時器
+            function startCountdown(expTime) {
+                function updateCountdown() {
+                    const now = Date.now();
+                    const remaining = expTime - now;
+                    
+                    if (remaining <= 0) {
+                        $('.countdown').text('已過期');
+                        return;
+                    }
+                    
+                    // 計算分鐘和秒數
+                    const minutes = Math.floor(remaining / 60000);
+                    const seconds = Math.floor((remaining % 60000) / 1000);
+                    
+                    // 格式化顯示
+                    $('.countdown').text(`${minutes}分${seconds.toString().padStart(2, '0')}秒`);
+                }
+                
+                // 立即更新一次
+                updateCountdown();
+                
+                // 每秒更新一次
+                setInterval(updateCountdown, 1000);
+            }
 
-    // ✅ 拿取菜單列表資料
-    $.get('/api/menu-items/', function(data) {
-      $('#menu-list').empty(); // ← 清空列表
-      data.forEach(function(item) {
-        $('#menu-list').append(
-          `<li data-id="${item.id}">
-              ${item.name} - $${item.price}
-              <button class="delete-btn">刪除</button>
-          </li>`
-        );
-      });
-    });
+            // Ajax 預設設定
+            $.ajaxSetup({
+                beforeSend: function(xhr, settings) {
+                    const csrftoken = $('meta[name="csrf-token"]').attr('content');
+                    if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+                        xhr.setRequestHeader("X-CSRFToken", csrftoken);
+                    }
+                    xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+                }
+            });
 
-    // 🗑️ 刪除功能
-    $('#menu-list').on('click', '.delete-btn', function() {
-      const li = $(this).closest('li');
-      const itemId = li.data('id');
+            // 顯示菜單列表
+            $.ajax({
+                url: '/api/menu-items/',
+                method: 'GET',
+                success: function(data) {
+                    $('#loading-menu').hide();
+                    $('#menu-list').empty();
+                    
+                    if (data.length === 0) {
+                        $('#menu-list').html('<p>目前沒有菜單項目</p>');
+                        return;
+                    }
+                    
+                    data.forEach(function(item) {
+                        $('#menu-list').prepend(
+                            `<li data-id="${item.id}">
+                                ${item.name} - $${parseFloat(item.price).toFixed(2)}
+                                <button class="delete-btn">刪除</button>
+                            </li>`
+                        );
+                    });
+                },
+                error: function(xhr) {
+                    $('#loading-menu').hide();
+                    if (xhr.status === 401) {
+                        $('#menu-list').html('<p>您的登入已過期或無效，請<a href="/login/">重新登入</a></p>');
+                    } else if (xhr.status === 403) {
+                        $('#menu-list').html('<p>您沒有權限查看菜單</p>');
+                    } else {
+                        $('#menu-list').html('<p>無法載入菜單，請稍後再試</p>');
+                        console.error('載入菜單失敗:', xhr);
+                    }
+                }
+            });
 
-      $.ajax({
-        url: `/api/menu-items/${itemId}/`,
-        method: 'DELETE',
-        success: function () {
-          li.remove();
-        },
-        error: function (xhr) {
-          alert('刪除失敗：' + xhr.responseText);
-        }
-      });
-    });
+            // 新增菜單項目
+            $('#add-item-form').submit(function (event) {
+                event.preventDefault();
+                const name = $('#name').val().trim();
+                const price = parseFloat($('#price').val());
 
-    // ➕ 新增菜單項目
-    $('#add-item-form').submit(function (event) {
-      event.preventDefault();
-      const name = $('#name').val().trim();
-      const price = parseFloat($('#price').val());
+                if (!name || isNaN(price) || price <= 0) {
+                    showError("請輸入有效的名稱與價格");
+                    return;
+                }
 
-      if (!name) {
-        alert('名稱不能空白！');
-        return;
-      }
+                const newItem = { name, price };
+                const submitBtn = $(this).find('button[type="submit"]');
+                const originalText = submitBtn.text();
+                
+                submitBtn.html('<span class="spinner"></span> 處理中...');
+                submitBtn.prop('disabled', true);
+                
+                $.ajax({
+                    url: '/api/menu-items/',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify(newItem),
+                    success: function (data) {
+                        $('#menu-list').prepend(
+                            `<li data-id="${data.id}">
+                                ${data.name} - $${parseFloat(data.price).toFixed(2)}
+                                <button class="delete-btn">刪除</button>
+                            </li>`
+                        );
+                        $('#name').val('');
+                        $('#price').val('');
+                    },
+                    error: function (xhr) {
+                        handleError(xhr);
+                    },
+                    complete: function() {
+                        submitBtn.html(originalText);
+                        submitBtn.prop('disabled', false);
+                    }
+                });
+            });
 
-      if (isNaN(price) || price <= 0) {
-        alert('價格必須是正數！');
-        return;
-      }
+            // 刪除功能 - 需確認
+            let itemToDelete = null;
+            let deleteItemId = null;
+            
+            $('#menu-list').on('click', '.delete-btn', function() {
+                itemToDelete = $(this).closest('li');
+                deleteItemId = itemToDelete.data('id');
+                $('#confirm-modal').show();
+            });
+            
+            $('#confirm-yes').click(function() {
+                if (!itemToDelete || !deleteItemId) {
+                    $('#confirm-modal').hide();
+                    return;
+                }
+                
+                const deleteBtn = $(this);
+                const originalText = deleteBtn.text();
+                deleteBtn.html('<span class="spinner"></span> 處理中...');
+                deleteBtn.prop('disabled', true);
+                
+                $.ajax({
+                    url: `/api/menu-items/${deleteItemId}/`,
+                    method: 'DELETE',
+                    success: function () {
+                        itemToDelete.remove();
+                        $('#confirm-modal').hide();
+                    },
+                    error: function (xhr) {
+                        $('#confirm-modal').hide();
+                        handleError(xhr);
+                    },
+                    complete: function() {
+                        deleteBtn.html(originalText);
+                        deleteBtn.prop('disabled', false);
+                        itemToDelete = null;
+                        deleteItemId = null;
+                    }
+                });
+            });
+            
+            $('#confirm-no').click(function() {
+                $('#confirm-modal').hide();
+                itemToDelete = null;
+                deleteItemId = null;
+            });
 
-      const newItem = { name, price };
+            // 登出
+            $('#logout-btn').click(function () {
+                localStorage.removeItem('token');
+                localStorage.removeItem('token_exp');
+                alert('已登出');
+                window.location.href = '/login/';
+            });
 
-      $.ajax({
-        url: '/api/menu-items/',
-        method: 'POST',
-        contentType: 'application/json',
-        data: JSON.stringify(newItem),
-        success: function (data) {
-          $('#menu-list').append(
-            `<li data-id="${data.id}">
-              ${data.name} - $${data.price}
-              <button class="delete-btn">刪除</button>
-            </li>`
-          );
-          $('#name').val('');
-          $('#price').val('');
-        },
-        error: function (xhr) {
-          alert('新增失敗：' + xhr.responseText);
-        }
-      });
-    });
-  });
-        // // 🛡️ 這段要放最前面
-        // $.ajaxSetup({
-        //   beforeSend: function(xhr, settings) {
-        //     // CSRF Token
-        //     const csrftoken = $('meta[name="csrf-token"]').attr('content');
-        //     if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
-        //       xhr.setRequestHeader("X-CSRFToken", csrftoken);
-        //     }
-        //     // JWT Token
-        //     const token = localStorage.getItem('token');
-        //     if (token) {
-        //         xhr.setRequestHeader('Authorization', 'Bearer ' + token);
-        //       } else {
-        //       console.warn("⚠️ 找不到 JWT token，請先登入！");
-        //     }
-        //   }
-        // });
-        
-        // // 載入資料
-        // $(document).ready(function() {
-        //   // 一進來就檢查有沒有 token，沒有就導回登入頁面
-        //     const token = localStorage.getItem('token');
-        //     if (!token) {
-        //       alert('請先登入！');
-        //       window.location.href = 'login.html';
-        //       return; // ⛔ 中止後面執行
-        //     }
+            // 錯誤處理顯示訊息
+            function handleError(xhr) {
+                let msg = "操作失敗";
+                
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    if (xhr.status === 401) {
+                        msg = "登入已過期，請重新登入";
+                        setTimeout(function() {
+                            localStorage.removeItem('token');
+                            localStorage.removeItem('token_exp');
+                            window.location.href = '/login/';
+                        }, 2000);
+                    } else if (xhr.status === 403) {
+                        msg = "權限不足，無法執行此操作";
+                    } else if (response.detail) {
+                        msg = response.detail;
+                    }
+                } catch (e) {
+                    console.error("解析錯誤回應失敗", e);
+                }
+                
+                showError(msg);
+            }
 
-        //     $.get('/api/menu-items/', function(data) {
-        //         $('#menu-list').empty(); // ← 清空列表再重載
-        //         data.forEach(function(item) {
-        //             $('#menu-list').append(
-        //                 `<li data-id="${item.id}">
-        //                     ${item.name} - $${item.price}
-        //                     <button class="delete-btn">刪除</button>
-        //                 </li>`
-        //             );
-        //         });
-        //     });
-        // });
-
-        // // 🗑️ 刪除功能（委派綁定）
-        // $('#menu-list').on('click', '.delete-btn', function() {
-        //     const li = $(this).closest('li');
-        //     const itemId = li.data('id');
-
-        //     $.ajax({
-        //         url: '/api/menu-items/${itemId}/',
-        //         // url: '/api/menu-items/', // 🧠 ← 這個一定要加上！
-        //         method: 'DELETE',
-        //         success: function() {
-        //             li.remove(); // 成功後從畫面中移除
-        //         },
-        //         error: function(xhr) {
-        //             alert('刪除失敗：' + xhr.responseText);
-        //         }
-        //     });
-        // });
-        
-        // // 表單送出; // 新增菜單項目
-        // $('#add-item-form').submit(function(event) {
-        //     event.preventDefault(); // 不要讓表單自動重新整理; 不要送出表單
-
-        //     const name = $('#name').val().trim();
-        //     const price = parseFloat($('#price').val());
-
-        //     if (!name) {
-        //       alert('名稱不能空白！'); //防止空白、錯誤輸入
-        //       return;
-        //     }
-
-        //     if (isNaN(price) || price <= 0) {
-        //       alert('價格必須是正數！');//改善使用體驗
-        //       return;
-        //     }
-
-        //     const newItem = { name: name, price: price };
-
-        //     $.ajax({
-        //         url: '/api/menu-items/',
-        //         method: 'POST',
-        //         contentType: 'application/json',
-        //         data: JSON.stringify(newItem),
-        //         success: function(data) {
-        //           console.log('新增成功，回傳資料：', data);
-        //           $('#menu-list').append(`<li data-id="${data.id}">
-        //             ${data.name} - $${data.price}
-        //             <button class="delete-btn">刪除</button></li>`);
-        //           $('#name').val('');
-        //           $('#price').val('');
-        //         },
-        //         error: function(xhr, status, error) {
-        //           console.log('錯誤訊息:', xhr.responseText);
-        //           alert('新增失敗：' + xhr.responseText);
-        //         }
-        //     });
-
-        // });
-
-        // // 登入JWT 
-        // $('#login-form').submit(function (event) {
-        //     event.preventDefault();
-
-        //     const credentials = {
-        //         username: $('#username').val(),
-        //         password: $('#password').val()
-        //     };
-
-        //     $.ajax({
-        //         url: '/api/token/',
-        //         method: 'POST',
-        //         contentType: 'application/json',
-        //         data: JSON.stringify(credentials),
-        //         success: function(response) {
-        //             // ✅ 這邊要加上這一行
-        //             localStorage.setItem('token', response.access);
-
-        //             alert('登入成功！');
-        //             location.reload(); // ← 看你要轉跳或 reload 頁面都行
-        //         },
-        //         error: function(xhr) {
-        //             alert('登入失敗：' + xhr.responseText);
-        //         }
-        //     });
-        // });
-
+            function showError(message) {
+                $('#error-message').text(message);
+                $('#error-modal').show();
+            }
+        });
     </script>
 </body>
 </html>
-
-
-<!-- 
-🎉 成功後你會學到：
-如何用 jQuery 呼叫 API
-如何把 API 資料「插入」網頁中
-Django REST + jQuery 前後端整合的第一步完成！
- -->

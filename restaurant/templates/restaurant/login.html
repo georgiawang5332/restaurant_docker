@@ -4,53 +4,61 @@
   <meta charset="UTF-8">
   <title>登入</title>
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    #error-message { color: red; margin-top: 10px; }
+  </style>
 </head>
 <body>
-
-  <h1>登入</h1>
+  <h2>🔐 請登入</h2>
   <form id="login-form">
-    <label for="username">帳號：</label>
-    <input type="text" id="username" name="username"><br><br>
-
-    <label for="password">密碼：</label>
-    <input type="password" id="password" name="password"><br><br>
-
+    <label>帳號：<input type="text" id="username" required></label><br><br>
+    <label>密碼：<input type="password" id="password" required></label><br><br>
     <button type="submit">登入</button>
   </form>
-
+  <div id="error-message"></div>
   <script>
     $('#login-form').submit(function (event) {
       event.preventDefault();
-
-      const credentials = {
-        username: $('#username').val(),
-        password: $('#password').val()
-      };
-
+      const username = $('#username').val().trim();
+      const password = $('#password').val().trim();
+      if (!username || !password) {
+        $('#error-message').text('請輸入帳號與密碼');
+        return;
+      }
       $.ajax({
-        // url: 'http://localhost:8000/api/token/',
-        url: '/api/token/',  // 使用相對路徑
+        url: '/api/token/',
         method: 'POST',
         contentType: 'application/json',
-        data: JSON.stringify(credentials),
-        success: function(response) {
-          console.log('登入成功，回傳資料：', response);
-
-          // ✅ 存進 localStorage
+        data: JSON.stringify({ username, password }),
+        success: function (response) {
+          // ✅ 儲存 token
           localStorage.setItem('token', response.access);
-
-          alert('登入成功！');
-          window.location.href = '/index/'; // ⬅️ 登入成功後導向主頁（可改）
-          window.location.href = '/';  // 修改為您的主頁路徑
+          
+          // ✅ 解析並儲存過期時間
+          try {
+            const payloadBase64 = response.access.split('.')[1];
+            const payloadJson = atob(payloadBase64);
+            const payload = JSON.parse(payloadJson);
+            const exp = payload.exp * 1000; // 轉換為毫秒
+            localStorage.setItem('token_exp', exp);
+          } catch (err) {
+            console.error("JWT 解碼失敗", err);
+          }
+          
+          // ✅ 導向主頁
+          window.location.href = '/';
         },
-        error: function(xhr) {
-          console.log('登入失敗：', xhr);  // 增加更詳細的錯誤日誌
-          // alert('登入失敗：' + xhr.responseText);
-          alert('登入失敗：' + (xhr.responseJSON ? JSON.stringify(xhr.responseJSON) : xhr.statusText));
+        error: function (xhr) {
+          let msg = '登入失敗，請檢查帳號密碼';
+          try {
+            const res = JSON.parse(xhr.responseText);
+            if (res.detail) msg = res.detail;
+          } catch (e) {}
+          $('#error-message').text(msg);
         }
       });
     });
   </script>
-
 </body>
 </html>
